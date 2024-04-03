@@ -1,5 +1,8 @@
 import paho.mqtt.client as paho
 from paho import mqtt
+from time import time
+from random import randint
+import threading
 
 def on_connect(client, userdata, flags, rc, properties=None):
     """
@@ -53,7 +56,6 @@ def create_client(username : str, password: str, url : str = "e324eb81ab454f5993
   client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1, client_id=id, userdata=None, protocol=paho.MQTTv5)
   client.on_connect = on_connect
   client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
-  print(f"Username: {username}\nPassword : {password}")
   client.username_pw_set(username, password)
   client.connect(url, port)
 
@@ -62,7 +64,24 @@ def create_client(username : str, password: str, url : str = "e324eb81ab454f5993
   client.on_publish = on_publish
   return client
 
-sender1 = create_client("ece140b-ta1", "ECE140bta1")
-sender1.subscribe("encyclopedia/#", qos=1)
-sender1.publish("encyclopedia/temperature", payload="hot", qos=1)
-sender1.loop_forever()
+sender1 = create_client("ece140b-ta1", "ECE140bta1", id="sender-1")
+sender2 = create_client("ece140b-ta1", "ECE140bta1", id = "sender-2")
+
+receiver = create_client("ece140b-ta1", "ECE140bta1", id="receiver")
+receiver.subscribe("topic-1")
+receiver.subscribe("topic-2")
+
+receiver_loop = threading.Thread(target= receiver.loop_forever, daemon=True)
+receiver_loop.start()
+
+last_post = time()
+post_period = 3
+
+try:
+  while(True):
+      if time() >= last_post + post_period:
+        last_post = time()
+        sender1.publish("topic-1", payload=randint(0, 100))
+        sender2.publish("topic-2", payload=randint(0, 100))
+except KeyboardInterrupt:
+  print("Shutting down clients")
