@@ -2,7 +2,11 @@ import paho.mqtt.client as paho
 from paho import mqtt
 from time import time
 from random import randint
-import threading
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+data = {}
 
 def on_connect(client, userdata, flags, rc, properties=None):
     """
@@ -46,7 +50,20 @@ def on_message(client, userdata, msg):
         :param userdata: userdata is set when initiating the client, here it is userdata=None
         :param msg: the message with topic and payload
     """
-    print(msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
+    print(f"Received {msg.payload} from {msg.topic}")
+    if msg.topic not in data.keys():
+      data[msg.topic] = list() 
+    data[msg.topic].append(int(msg.payload))
+    if msg.topic == 'topic-1':
+      plt.scatter(msg.payload, 0, color='red')
+    else:
+      plt.scatter(msg.payload, 1, color='blue')
+  
+    plt.xticks(range(0,101, 10), range(0,101,10))
+    plt.yticks([0, 1], ['topic-1', 'topic-2'])
+    plt.pause(0.5)
+  
+      
     
 
 def create_client(username : str, password: str, url : str = "e324eb81ab454f59936d87b3044022fc.s1.eu.hivemq.cloud", id : str = "", port : int = 8883) -> paho.Client:
@@ -63,7 +80,7 @@ def create_client(username : str, password: str, url : str = "e324eb81ab454f5993
   client.on_message = on_message
   client.on_publish = on_publish
   return client
-
+  
 sender1 = create_client("ece140b-ta1", "ECE140bta1", id="sender-1")
 sender2 = create_client("ece140b-ta1", "ECE140bta1", id = "sender-2")
 
@@ -71,17 +88,15 @@ receiver = create_client("ece140b-ta1", "ECE140bta1", id="receiver")
 receiver.subscribe("topic-1")
 receiver.subscribe("topic-2")
 
-receiver_loop = threading.Thread(target= receiver.loop_forever, daemon=True)
-receiver_loop.start()
-
 last_post = time()
 post_period = 3
 
 try:
   while(True):
-      if time() >= last_post + post_period:
-        last_post = time()
-        sender1.publish("topic-1", payload=randint(0, 100))
-        sender2.publish("topic-2", payload=randint(0, 100))
+    receiver.loop(timeout=0.1)
+    if time() >= last_post + post_period:
+      last_post = time()
+      sender1.publish("topic-1", payload=randint(0, 100))
+      sender2.publish("topic-2", payload=randint(0, 100))
 except KeyboardInterrupt:
   print("Shutting down clients")
