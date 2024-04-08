@@ -64,8 +64,6 @@ def on_message(client, userdata, msg):
     plt.pause(0.5)
   
       
-    
-
 def create_client(username : str, password: str, url : str = "e324eb81ab454f59936d87b3044022fc.s1.eu.hivemq.cloud", id : str = "", port : int = 8883) -> paho.Client:
   """
     Returns a newly initialized and connected client

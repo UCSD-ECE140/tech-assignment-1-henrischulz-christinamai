@@ -1,6 +1,7 @@
 import os
 import json
 from dotenv import load_dotenv
+from map import Map
 
 import paho.mqtt.client as paho
 from paho import mqtt
@@ -29,7 +30,7 @@ def on_publish(client, userdata, mid, properties=None):
         :param mid: variable returned from the corresponding publish() call, to allow outgoing messages to be tracked
         :param properties: can be used in MQTTv5, but is optional
     """
-    print("mid: " + str(mid))
+    # print("mid: " + str(mid))
 
 
 # print which topic was subscribed to
@@ -53,56 +54,51 @@ def on_message(client, userdata, msg):
         :param userdata: userdata is set when initiating the client, here it is userdata=None
         :param msg: the message with topic and payload
     """
-    if msg.topic.endswith('game_state'):
-      (_, lobby, player, _) = msg.topic.split('/')
-      if player in custom_users:
-        display_position(player, json.loads(msg.payload))
+
     # print("message: " + msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
+    # if msg.topic.endswith('game_state'):
+    #   (_, lobby, player, _) = msg.topic.split('/')
+    #   print(player)
+    #   if(player == 'Player1'):
+    #     display_position(json.loads(msg.payload))
+      
 
-def display_position(player, game_data):
-  
-  marker = {
-    'free'  : '__',
-    'walls' : 'XX',
-    'oob' : 'XX',
-    'coin1' : '$1',
-    'coin2' : '$2',
-    'coin3' : '$3',
-  }
-  
-  top_left =  [i-2 for i in game_data['currentPosition']]
-  print(f"\n{player}'s map:")
-  
-  game_map = [[None for i in range(0,5)] for i in range(0,5)]
-  for i in range(0,5):
-    for j in range(0,5):
-      if top_left[0] + i in range(0,10) and top_left[1] + j in range(0,10):
-        game_map[i][j] = marker['free']
-      else:
-        game_map[i][j] = marker['oob']
-  
-  def update_map(loc : list[2], entity : str):
-    game_map[loc[0] - top_left[0]][loc[1] - top_left[1]] = marker[entity] if entity in marker.keys() else entity.capitalize()
+def move_user(client):
+    direction = ''
+    while not direction in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
+        direction = input("What direction do you want to move? (UP/DOWN/LEFT/RIGHT): ")
+    client.publish(f"games/{lobby_name}/{player_1}/move", direction)
 
-  for entity, locs in dict.items(game_data):
-    if entity == 'teammateNames':
-      continue
-    elif entity == 'teammatePositions':
-      for i in range(0, len(locs)):
-        update_map(locs[i], game_data['teammateNames'][i])
-    elif entity == 'currentPosition':
-      update_map(locs, player)
-    else:  
-      for loc in locs:
-        update_map(loc, entity)
+# def display_position(game_data):
+#   player_location = game_data["currentPosition"]
+#   print(f"Player loc: {player_location}")
   
-  for row in game_map:
-    print('\t'.join(row))
-    
-  custom_users[player]['map_updated'] = True
+#   local_data = {}
+#   for entity, locations in dict.items(game_data): # Generate a localized version of the game data
+#     if entity not in ['teammateNames', 'currentPosition']: # these 2 fields do not track other entities
+#       local_data[entity] = [[location[i] - player_location[i] for i in [0,1] if abs(location[i] - player_location[i]) <= 2] for location in locations]
+#   print(local_data)
+  
+#   local_map = [['None' for i in range(0,5)] for i in range(0,5)]
 
-custom_users = {}
-
+#   for entity, locations in dict.items(local_data):
+#     for location in locations:
+#       print(location)
+#       local_map[location[0] + 2][location[1] + 2] = entity
+#   local_map[2][2] = 'Player'
+#   if player_location[0] == 
+      
+#   result = []    
+#   for row in local_map:
+#     row_str = []
+#     for cell in row:
+#       row_str.append(cell)
+#     result.append('\t'.join(row_str)) 
+#   output = '\n'.join(result)
+#   print(output)
+  
+  
+  
 if __name__ == '__main__':
     load_dotenv(dotenv_path='./credentials.env')
     
@@ -126,22 +122,17 @@ if __name__ == '__main__':
     client.on_publish = on_publish # Can comment out to not print when publishing to topics
 
     lobby_name = "TestLobby"
+    player_1 = "Player1"
     player_2 = "Player2"
     player_3 = "Player3"
 
     client.subscribe(f"games/{lobby_name}/lobby")
     client.subscribe(f'games/{lobby_name}/+/game_state')
     client.subscribe(f'games/{lobby_name}/scores')
-    
-    print("Welcome to the game!")
-    input("Press enter to start: ")
-    
-    user = input("Enter your name: ")
-    custom_users[user] = {'map_updated' : False}
 
     client.publish("new_game", json.dumps({'lobby_name':lobby_name,
                                             'team_name':'ATeam',
-                                            'player_name' : user}))
+                                            'player_name' : player_1}))
     
     client.publish("new_game", json.dumps({'lobby_name':lobby_name,
                                             'team_name':'BTeam',
@@ -153,25 +144,16 @@ if __name__ == '__main__':
 
     time.sleep(1) # Wait a second to resolve game start
     client.publish(f"games/{lobby_name}/start", "START")
-    
-    game_over = False
-    
-    def user_move(player):
-      move = None
-      while not custom_users[player]['map_updated']:
-        pass
-      while move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
-        move = input(f"\n{player}, what move do you want to make? (UP/DOWN/LEFT/RIGHT)\n: ")
-      client.publish(f"games/{lobby_name}/{player}/move", move)
-      
     client.loop_start()
-    
-    while not game_over:
-      user_move(user)
-      client.publish(f"games/{lobby_name}/{player_2}/move", "DOWN")
-      client.publish(f"games/{lobby_name}/{player_3}/move", "DOWN")
+    try:
+      game_over = False
+      while not game_over:
+        move_user(client)
+        client.publish(f"games/{lobby_name}/{player_2}/move", "DOWN")
+        client.publish(f"games/{lobby_name}/{player_3}/move", "DOWN")
+      # client.publish(f"games/{lobby_name}/start", "STOP")
+    finally:
+      client.loop_stop()
 
-    client.loop_stop()
-      
 
-
+    client.loop_forever()
