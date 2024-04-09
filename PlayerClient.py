@@ -6,7 +6,6 @@ import paho.mqtt.client as paho
 from paho import mqtt
 import time
 
-
 # setting callbacks for different events to see if it works, print the message etc.
 def on_connect(client, userdata, flags, rc, properties=None):
     """
@@ -135,7 +134,6 @@ if __name__ == '__main__':
     
     # Sets up a game
     def setup_game():
-      # Startup display
       print(f"\n\n------------------------\nWELCOME TO THE GAME\n\nPress enter to start!\n------------------------")
       input()
       
@@ -210,19 +208,6 @@ if __name__ == '__main__':
       
     # Allow a bot to make a move
     def bot_move(name):
-      def tokenize_map():
-        tokenized = [[-1] * 5] * 5
-        tokens = {
-          '$1' : 1,
-          '$2' : 2,
-          '$3' : 3,
-          '__' : 0,
-        }
-        map = player[name]['map']
-        for i in range(0,5):
-          for j in range(0,5):
-            tokenized[i][j] = tokens[map[i][j]] if map[i][j] in tokens.keys() else map[i][j]
-              
       move = 'DOWN'
       client.publish(f"games/{lobby_name}/{name}/move", move)
       players[name]['map_updated'] = False
