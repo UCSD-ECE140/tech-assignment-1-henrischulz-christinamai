@@ -129,17 +129,45 @@ if __name__ == '__main__':
     client.on_publish = on_publish # Can comment out to not print when publishing to topics
 
     lobby_name = "TestLobby"
-    player_2 = "Player2"
-    player_3 = "Player3"
-
     client.subscribe(f"games/{lobby_name}/lobby")
     client.subscribe(f'games/{lobby_name}/+/game_state')
     client.subscribe(f'games/{lobby_name}/scores')
     
-    # Startup display
-    print(f"\n\n------------------------\nWELCOME TO THE GAME\n\nPress enter to start!\n------------------------")
-    input()
+    # Sets up a game
+    def setup_game():
+      # Startup display
+      print(f"\n\n------------------------\nWELCOME TO THE GAME\n\nPress enter to start!\n------------------------")
+      input()
+      
+      user_count = None
+      while type(user_count) != int:
+        user_count = input(f"\nHow many users will be playing in this game?")
+        if not user_count.isdigit():
+          print(f"{user_count} is an invalid number!")
+        else:
+          user_count = int(user_count)
+      
+      bot_count = None
+      while type(bot_count) != int:
+        bot_count = input(f"\nHow many bots will be playing in this game?")
+        if not bot_count.isdigit():
+          print(f"{bot_count} is an invalid number!")
+        else:
+          bot_count = int(bot_count)
+      
+      for i in range(0, user_count):
+        create_user()
+      
+      for i in range(0, bot_count):
+        team = input(f"\nWhat team should bot #{i+1} be on?")
+        create_bot(team)
     
+    # Starts a game
+    def start_game():
+      print(f"\n\nGAME STARTED!")
+      time.sleep(1) # Wait a second to resolve game start
+      client.publish(f"games/{lobby_name}/start", "START")
+      
     # Adding new bots
     def create_bot(team) -> str:
       name = f"Player{len(players) + 1}"
@@ -182,16 +210,27 @@ if __name__ == '__main__':
       
     # Allow a bot to make a move
     def bot_move(name):
+      def tokenize_map():
+        tokenized = [[-1] * 5] * 5
+        tokens = {
+          '$1' : 1,
+          '$2' : 2,
+          '$3' : 3,
+          '__' : 0,
+        }
+        map = player[name]['map']
+        for i in range(0,5):
+          for j in range(0,5):
+            tokenized[i][j] = tokens[map[i][j]] if map[i][j] in tokens.keys() else map[i][j]
+              
       move = 'DOWN'
       client.publish(f"games/{lobby_name}/{name}/move", move)
       players[name]['map_updated'] = False
     
-    # Creates two user-controlled players
-    create_user()
-    create_user()
-
-    time.sleep(1) # Wait a second to resolve game start
-    client.publish(f"games/{lobby_name}/start", "START")
+    
+    # Game flow code:
+    setup_game()
+    start_game()
       
     game_over = False
     client.loop_start()
