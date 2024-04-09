@@ -60,8 +60,8 @@ def on_message(client, userdata, msg):
       if players[player]['type'] == 'user':
         update_position(player, json.loads(msg.payload))
 
+
 def update_position(player, game_data):
-  
   marker = {
     'free'  : '__',
     'walls' : 'XX',
@@ -98,138 +98,151 @@ def update_position(player, game_data):
   players[player]['map'] = game_map 
   players[player]['map_updated'] = True
 
-players = {}
 
 def show_map(player):
   print(f"\n{player}'s map:")
   for row in players[player]['map']:
       print('\t'.join(row))
+      
+      
+def init_client(client):
+  load_dotenv(dotenv_path='./credentials.env')
+
+  broker_address = os.environ.get('BROKER_ADDRESS')
+  broker_port = int(os.environ.get('BROKER_PORT'))
+  username = os.environ.get('USER_NAME')
+  password = os.environ.get('PASSWORD')
+
+  client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1, client_id="Player1", userdata=None, protocol=paho.MQTTv5)
+  
+  # enable TLS for secure connection
+  client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
+  # set username and password
+  client.username_pw_set(username, password)
+  # connect to HiveMQ Cloud on port 8883 (default for MQTT)
+  client.connect(broker_address, broker_port)
+
+  # setting callbacks, use separate functions like above for better visibility
+  client.on_subscribe = on_subscribe # Can comment out to not print when subscribing to new topics
+  client.on_message = on_message
+  client.on_publish = on_publish # Can comment out to not print when publishing to topics
+
+  client.subscribe(f"games/{lobby_name}/lobby")
+  client.subscribe(f'games/{lobby_name}/+/game_state')
+  client.subscribe(f'games/{lobby_name}/scores')
+  
+  return client
+  
+
+# Sets up a game
+def setup_game():
+  print(f"\n\n------------------------\nWELCOME TO THE GAME\n\nPress enter to start!\n------------------------")
+  input()
+  
+  user_count = None
+  while type(user_count) != int:
+    user_count = input(f"\nHow many users will be playing in this game?")
+    if not user_count.isdigit():
+      print(f"{user_count} is an invalid number!")
+    else:
+      user_count = int(user_count)
+  
+  bot_count = None
+  while type(bot_count) != int:
+    bot_count = input(f"\nHow many bots will be playing in this game?")
+    if not bot_count.isdigit():
+      print(f"{bot_count} is an invalid number!")
+    else:
+      bot_count = int(bot_count)
+  
+  for i in range(0, user_count):
+    create_user()
+  
+  for i in range(0, bot_count):
+    team = input(f"\nWhat team should bot #{i+1} be on?")
+    create_bot(team)
+
+
+# Starts a game
+def start_game():
+  print(f"\n\nGAME STARTED!")
+  time.sleep(1) # Wait a second to resolve game start
+  client.publish(f"games/{lobby_name}/start", "START")
+  
+      
+# Adding new bots
+def create_bot(team) -> str:
+  name = f"Player{len(players) + 1}"
+  players[name] = {
+    'type' : 'bot',
+    'map_updated' : False,
+    'team' : team
+  }
+  client.publish("new_game", json.dumps({'lobby_name':lobby_name,
+                                        'team_name': team,
+                                        'player_name' : name}))
+  return name
+
+
+# Adding new users
+def create_user() -> str:
+  name = input("Enter your name: ")
+  team = input(f"Hi {name}, enter your team's name: ")
+  players[name] = {
+    'type' : 'user',
+    'map_updated' : False,
+    'team' : team
+    }
+  client.publish("new_game", json.dumps({'lobby_name':lobby_name,
+                                        'team_name': team,
+                                        'player_name' : name}))
+  return name
+
+
+# Allow a user to make a move
+def user_move(name):
+  move = None
+  while not players[name]['map_updated']:
+    pass
+  show_map(name)
+  while move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
+    move = input(f"\n{name}, what move do you want to make? (UP/DOWN/LEFT/RIGHT)\n")
+    if move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
+      print(f"Uh-oh! {move} is an invalid move. Please enter a valid one!")
+  client.publish(f"games/{lobby_name}/{name}/move", move)
+  players[name]['map_updated'] = False
+
+
+# Allow a bot to make a move
+def bot_move(name):
+  move = 'DOWN'
+  client.publish(f"games/{lobby_name}/{name}/move", move)
+  players[name]['map_updated'] = False
+  
+  
+          
+players = {}
+lobby_name = 'TestLobby'
+client: paho.Client = None
 
 if __name__ == '__main__':
-    load_dotenv(dotenv_path='./credentials.env')
+  client = init_client(client)   
+  setup_game()
+  start_game()
     
-    broker_address = os.environ.get('BROKER_ADDRESS')
-    broker_port = int(os.environ.get('BROKER_PORT'))
-    username = os.environ.get('USER_NAME')
-    password = os.environ.get('PASSWORD')
+  game_over = False
+  client.loop_start()
 
-    client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1, client_id="Player1", userdata=None, protocol=paho.MQTTv5)
-    
-    # enable TLS for secure connection
-    client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
-    # set username and password
-    client.username_pw_set(username, password)
-    # connect to HiveMQ Cloud on port 8883 (default for MQTT)
-    client.connect(broker_address, broker_port)
+  while not game_over:
+    for player, info in dict.items(players):
+      print(f"\n{player}'s turn!")
+      if info['type'] == 'bot':
+        bot_move(player)
+      else:
+        user_move(player)
+      print(f"{player}'s turn is over")
 
-    # setting callbacks, use separate functions like above for better visibility
-    client.on_subscribe = on_subscribe # Can comment out to not print when subscribing to new topics
-    client.on_message = on_message
-    client.on_publish = on_publish # Can comment out to not print when publishing to topics
-
-    lobby_name = "TestLobby"
-    client.subscribe(f"games/{lobby_name}/lobby")
-    client.subscribe(f'games/{lobby_name}/+/game_state')
-    client.subscribe(f'games/{lobby_name}/scores')
-    
-    # Sets up a game
-    def setup_game():
-      print(f"\n\n------------------------\nWELCOME TO THE GAME\n\nPress enter to start!\n------------------------")
-      input()
-      
-      user_count = None
-      while type(user_count) != int:
-        user_count = input(f"\nHow many users will be playing in this game?")
-        if not user_count.isdigit():
-          print(f"{user_count} is an invalid number!")
-        else:
-          user_count = int(user_count)
-      
-      bot_count = None
-      while type(bot_count) != int:
-        bot_count = input(f"\nHow many bots will be playing in this game?")
-        if not bot_count.isdigit():
-          print(f"{bot_count} is an invalid number!")
-        else:
-          bot_count = int(bot_count)
-      
-      for i in range(0, user_count):
-        create_user()
-      
-      for i in range(0, bot_count):
-        team = input(f"\nWhat team should bot #{i+1} be on?")
-        create_bot(team)
-    
-    # Starts a game
-    def start_game():
-      print(f"\n\nGAME STARTED!")
-      time.sleep(1) # Wait a second to resolve game start
-      client.publish(f"games/{lobby_name}/start", "START")
-      
-    # Adding new bots
-    def create_bot(team) -> str:
-      name = f"Player{len(players) + 1}"
-      players[name] = {
-        'type' : 'bot',
-        'map_updated' : False,
-        'team' : team
-      }
-      client.publish("new_game", json.dumps({'lobby_name':lobby_name,
-                                            'team_name': team,
-                                            'player_name' : name}))
-      return name
-        
-    # Adding new users
-    def create_user() -> str:
-      name = input("Enter your name: ")
-      team = input(f"Hi {name}, enter your team's name: ")
-      players[name] = {
-        'type' : 'user',
-        'map_updated' : False,
-        'team' : team
-        }
-      client.publish("new_game", json.dumps({'lobby_name':lobby_name,
-                                            'team_name': team,
-                                            'player_name' : name}))
-      return name
-    
-    # Allow a user to make a move
-    def user_move(name):
-      move = None
-      while not players[name]['map_updated']:
-        pass
-      show_map(name)
-      while move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
-        move = input(f"\n{name}, what move do you want to make? (UP/DOWN/LEFT/RIGHT)\n")
-        if move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
-          print(f"Uh-oh! {move} is an invalid move. Please enter a valid one!")
-      client.publish(f"games/{lobby_name}/{name}/move", move)
-      players[name]['map_updated'] = False
-      
-    # Allow a bot to make a move
-    def bot_move(name):
-      move = 'DOWN'
-      client.publish(f"games/{lobby_name}/{name}/move", move)
-      players[name]['map_updated'] = False
-    
-    
-    # Game flow code:
-    setup_game()
-    start_game()
-      
-    game_over = False
-    client.loop_start()
-    
-    while not game_over:
-      for player, info in dict.items(players):
-        print(f"\n{player}'s turn!")
-        if info['type'] == 'bot':
-          bot_move(player)
-        else:
-          user_move(player)
-        print(f"{player}'s turn is over")
-
-    client.loop_stop()
+  client.loop_stop()
       
 
 
