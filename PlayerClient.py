@@ -57,6 +57,7 @@ def on_message(client, userdata, msg):
     # print("message: " + msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
     if msg.topic.endswith('game_state'):
       (_, lobby, player, _) = msg.topic.split('/')
+      players[player]['game_data'] = json.loads(msg.payload)
       if players[player]['type'] == 'user':
         update_position(player, json.loads(msg.payload))
 
@@ -231,6 +232,7 @@ if __name__ == '__main__':
   start_game()
     
   game_over = False
+  
   client.loop_start()
 
   while not game_over:
