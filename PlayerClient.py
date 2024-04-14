@@ -63,9 +63,7 @@ def on_message(client, userdata, msg):
         
     if msg.topic.endswith('lobby'):
       (_, lobby, _) = msg.topic.split('/')
-      hold = str(msg.payload)
-      print(hold)
-      if(check_end_game(hold)):
+      if(check_end_game(str(msg.payload.decode()))):
           end_game()
 
 
@@ -234,18 +232,13 @@ def bot_move(name):
   
 # Check if all coins are collected for end game condition
 def check_end_game(lobby_subscription_message):
-  if(lobby_subscription_message == "Game Over: All coins have been collected"):
+  if(lobby_subscription_message == 'Game Over: All coins have been collected'):
     game_over = True
     print("game_over");
     return game_over
     
 # End Lobby Game for Players
 def end_game():
-  client.publish(f"games/{lobby_name}/lobby", "Game Over: Game has been stopped")
-  client.team_dict.pop(lobby_name)
-  client.move_dict.pop(lobby_name)
-  client.game_dict.pop(lobby_name)
-  
   client.loop_stop()
           
 players = {}
