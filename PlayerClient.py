@@ -60,6 +60,13 @@ def on_message(client, userdata, msg):
       players[player]['game_data'] = json.loads(msg.payload)
       if players[player]['type'] == 'user':
         update_position(player, json.loads(msg.payload))
+        
+    if msg.topic.endswith('lobby'):
+      (_, lobby, _) = msg.topic.split('/')
+      hold = str(msg.payload)
+      print(hold)
+      if(check_end_game(hold)):
+          end_game()
 
 
 def update_position(player, game_data):
@@ -71,7 +78,7 @@ def update_position(player, game_data):
     'coin2' : '$2',
     'coin3' : '$3',
   }
-  
+  print(game_data)
   top_left =  [i-2 for i in game_data['currentPosition']]
   
   game_map = [[None for i in range(0,5)] for i in range(0,5)]
@@ -99,12 +106,10 @@ def update_position(player, game_data):
   players[player]['map'] = game_map 
   players[player]['map_updated'] = True
 
-
 def show_map(player):
   print(f"\n{player}'s map:")
   for row in players[player]['map']:
       print('\t'.join(row))
-      
       
 def init_client(client):
   load_dotenv(dotenv_path='./credentials.env')
@@ -142,7 +147,7 @@ def setup_game():
   
   user_count = None
   while type(user_count) != int:
-    user_count = input(f"\nHow many users will be playing in this game?")
+    user_count = input(f"\nHow many users will be playing in this game? :")
     if not user_count.isdigit():
       print(f"{user_count} is an invalid number!")
     else:
@@ -150,7 +155,7 @@ def setup_game():
   
   bot_count = None
   while type(bot_count) != int:
-    bot_count = input(f"\nHow many bots will be playing in this game?")
+    bot_count = input(f"\nHow many bots will be playing in this game? :")
     if not bot_count.isdigit():
       print(f"{bot_count} is an invalid number!")
     else:
@@ -160,8 +165,9 @@ def setup_game():
     create_user()
   
   for i in range(0, bot_count):
-    team = input(f"\nWhat team should bot #{i+1} be on?")
-    create_bot(team)
+    team = input(f"\nWhat team should bot #{i+1} be on? :")
+    mode = input(f"\nWhat mode should bot #{i+1} be? n/a or algorithm :")
+    create_bot(team,mode)
 
 
 # Starts a game
@@ -172,12 +178,13 @@ def start_game():
   
       
 # Adding new bots
-def create_bot(team) -> str:
+def create_bot(team, mode) -> str:
   name = f"Player{len(players) + 1}"
   players[name] = {
     'type' : 'bot',
     'map_updated' : False,
-    'team' : team
+    'team' : team,
+    'mode' : mode #n/a or algorithm
   }
   client.publish("new_game", json.dumps({'lobby_name':lobby_name,
                                         'team_name': team,
@@ -192,7 +199,8 @@ def create_user() -> str:
   players[name] = {
     'type' : 'user',
     'map_updated' : False,
-    'team' : team
+    'team' : team,
+    'mode' : 'n/a'
     }
   client.publish("new_game", json.dumps({'lobby_name':lobby_name,
                                         'team_name': team,
@@ -215,12 +223,30 @@ def user_move(name):
 
 
 # Allow a bot to make a move
-def bot_move(name):
-  move = 'DOWN'
-  client.publish(f"games/{lobby_name}/{name}/move", move)
-  players[name]['map_updated'] = False
+def bot_move(name): 
+  match players[name]["mode"]:
+    case 'algorithm':
+      pass #TODO: Pathfinding
+    case _:
+      move = 'DOWN'
+      client.publish(f"games/{lobby_name}/{name}/move", move)
+      players[name]['map_updated'] = False
   
+# Check if all coins are collected for end game condition
+def check_end_game(lobby_subscription_message):
+  if(lobby_subscription_message == "Game Over: All coins have been collected"):
+    game_over = True
+    print("game_over");
+    return game_over
+    
+# End Lobby Game for Players
+def end_game():
+  client.publish(f"games/{lobby_name}/lobby", "Game Over: Game has been stopped")
+  client.team_dict.pop(lobby_name)
+  client.move_dict.pop(lobby_name)
+  client.game_dict.pop(lobby_name)
   
+  client.loop_stop()
           
 players = {}
 lobby_name = 'TestLobby'
@@ -244,7 +270,8 @@ if __name__ == '__main__':
         user_move(player)
       print(f"{player}'s turn is over")
 
-  client.loop_stop()
+  
+  
       
 
 
