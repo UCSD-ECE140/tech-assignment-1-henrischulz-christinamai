@@ -7,6 +7,22 @@ import paho.mqtt.client as paho
 from paho import mqtt
 import time
 
+
+game_vars = {
+  'players' : {}, 
+  'currentPlayer' : None, 
+  'lobby_name' : 'TestLobby', 
+  'client' : None, 
+  'scores' : {},
+  'state' : 'setup',
+  'player_order' : [],
+  'teams' : {},
+  'client_id' : None,
+  'client_states' : {},
+  'game_over' : False, 
+  'active_room' : None
+  }
+
 # setting callbacks for different events to see if it works, print the message etc.
 def on_connect(client, userdata, flags, rc, properties=None):
     """
@@ -55,7 +71,7 @@ def on_message(client, userdata, msg):
         :param userdata: userdata is set when initiating the client, here it is userdata=None
         :param msg: the message with topic and payload
     """
-    print(msg.topic + " : " + msg.payload.decode())
+    # print(msg.topic + " : " + msg.payload.decode())
     players = game_vars['players']
     if msg.topic.endswith('game_state'):
       (_, lobby, player, _) = msg.topic.split('/')
@@ -72,23 +88,28 @@ def on_message(client, userdata, msg):
     elif msg.topic.endswith('players'):
       game_vars['players'] = json.loads(msg.payload)
     elif msg.topic.endswith('current_player'):
-       game_vars['currentPlayer'] = msg.payload.decode()
+      player = msg.payload.decode()
+      if player != game_vars['currentPlayer']:
+        print(f"It is now {player}'s turn!\nIf you are {player}, enter '?' to take your turn!")
+        game_vars['currentPlayer'] = player
     elif msg.topic.endswith('teams'):
       game_vars['teams'] = json.loads(msg.payload)
-    elif msg.topic.endswith('teams'):
+      display_lobby()
+    elif msg.topic.endswith('client_states'):
       updates = json.loads(msg.payload)
       for client_id, state in updates.items(): 
         update_client_state(client_id, state)
+    elif msg.payload.decode().startswith('Game Over'):
+      game_vars['game_over'] = True
 
-def sync_current_player(player):
-  game_vars['currentPlayer'] = player
-
-def set_current_player(player):
-  game_vars['currentPlayer'] = player
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/current_player", player)
+def display_lobby():
+  print(f"\n----TEAMS----")
+  for team, names in game_vars['teams'].items():
+    print(f"Team {team}: {", ".join(names)}")
+  print()
     
 def set_players():
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/players", game_vars['players'])
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/players", game_vars['players'], qos=2)
   
 def sync_players(players : dict):
   pass
@@ -186,17 +207,19 @@ def title_screen():
 def run_lobby():
   update_client_state(game_vars['client_id'], 'lobby')
   while True:
+    display_lobby()
     choice = input(f"Please select one of the following\n[U] Create User\n[B] Create Bot \n[S] Start Game\n")
     if choice == "U":
       create_user()
     elif choice == "B":
-      team = input(f"\nWhat team should the bot Player{len(game_vars['players']) + 1} be on?\n")
+      team = input(f"\nWhat team should the bot Player{sum([len(team) for team in game_vars['teams'].values()]) + 1} be on?\n")
       create_bot(team)
     elif choice == "S":
       update_client_state(game_vars['client_id'], 'ready')
       print(f'\nWaiting for all lobbies to ready up!')
       while not all_synced('ready'):
-        pass
+        time.sleep(1)
+        print(game_vars['client_states'])
       return
 
 def update_teams():
@@ -204,13 +227,14 @@ def update_teams():
     team = player_info['team']
     if team not in game_vars['teams'].keys():
       game_vars['teams'][team] = [player_name]
-      game_vars['client'].subscribe(f"games/{game_vars['lobby_name']}/{team}/chat")
     elif player_name not in game_vars['teams'][team]:
       game_vars['teams'][team].append(player_name)
   sync_teams()
 
 def sync_teams():
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/teams", json.dumps(game_vars['teams']))
+  for team in game_vars['teams'].keys():
+    game_vars['client'].subscribe(f"games/{game_vars['lobby_name']}/{team}/chat")
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/teams", json.dumps(game_vars['teams']), qos=2)
   
 def set_order():
   game_vars['player_order'] = []
@@ -219,41 +243,80 @@ def set_order():
       game_vars['player_order'].append(player_name)
 
   set_current_player(game_vars['player_order'][0])
-# Starts a game
+
+def set_current_player(player):
+  game_vars['currentPlayer'] = player
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/current_player", player, qos=2)
 
 def start_game():
   print(f"\n\nGAME STARTED!")
   set_order()
   time.sleep(1) # Wait a second to resolve game start
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/start", "START")
-  
-def find_next_player():
-  pass    
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/start", "START", qos=2) 
   
 def send_chat(player, message):
   player_team = game_vars['players'][player]['team']
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{game_vars['players'][player]['team']}/chat", json.dumps({player_team : f"{player} : {message}"}))
-  
-  
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{game_vars['players'][player]['team']}/chat", json.dumps({player_team : f"{player} : {message}"}),qos=2)
+
+def send_anonymous_chat(team, message):
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{team}/chat", json.dumps({team : f"Anonymous : {message}"}),qos=2)
+
 def update_chat(team, message):
   for team, chat in message.items():
-    if team == game_vars['players'][game_vars['currentPlayer']]['team']:
-      for player_name in game_vars['teams'][team]:
+    for player_name in game_vars['players'].keys():
+      if game_vars['players'][player_name]['team'] == team:
         game_vars['players'][player_name]['chat'].insert(0, chat)
-  
+            
       
 def display_chat(team):
   currentPlayer = game_vars['currentPlayer']
   players = game_vars['players']
-  if team == players[currentPlayer]['team']:
-    while len(players[currentPlayer]['chat']) != 0:
-      print(f"\nNEW CHAT from {players[currentPlayer]['chat'].pop()}")
   
-    
+  if (currentPlayer in players.keys() and team == players[currentPlayer]['team']):
+    while len(players[currentPlayer]['chat']) != 0:
+      print(f"\nNEW CHAT from {players[currentPlayer]['chat'].pop()}")  
+  elif game_vars['active_room'] == team:
+    messages = []
+    for player_name in game_vars['teams'][team]:
+      if player_name in players.keys():
+        message = ""
+        try:
+          while True:
+            message = players[player_name]['chat'].pop()
+            if message not in messages:
+              messages.append(message)
+        except IndexError:
+          pass
+    if messages == []:
+      print(f"\nThere are no players on this computer on that team.\nStop trying to cheat!")
+    else:
+      for message in messages:
+        print(f"\nNEW CHAT from {message}")
+
+
+# Adding new users
+def create_user() -> str:
+  name = input("Enter your name: ")
+  
+  if any([name in names for names in game_vars['teams'].values()]):
+    print("Sorry! That name is already taken")
+    return None
+  team = input(f"Hi {name}, enter your team's name: ")
+  game_vars['players'][name] = {
+    'type' : 'user',
+    'map_updated' : False,
+    'team' : team,
+    'chat' : list(),
+    }
+  game_vars['client'].publish("new_game", json.dumps({'lobby_name':game_vars['lobby_name'],
+                                        'team_name': team,
+                                        'player_name' : name}), qos=2)
+  update_teams()
+  return name
+
 # Adding new bots
 def create_bot(team) -> str:
-  players = game_vars['players']
-  name = f"Player{len(players) + 1}"
+  name = f"Player{sum([len(team) for team in game_vars['teams'].values()]) + 1}"
   game_vars['players'][name] = {
     'type' : 'bot',
     'map_updated' : False,
@@ -262,28 +325,32 @@ def create_bot(team) -> str:
   }
   game_vars['client'].publish("new_game", json.dumps({'lobby_name':game_vars['lobby_name'],
                                         'team_name': team,
-                                        'player_name' : name}))
+                                        'player_name' : name}), qos=2)
   update_teams()
   return name
 
 
-# Adding new users
-def create_user() -> str:
-  name = input("Enter your name: ")
-  team = input(f"Hi {name}, enter your team's name: ")
-  game_vars['players'][name] = {
-    'type' : 'user',
-    'map_updated' : False,
-    'team' : team,
-    'chat' : list(),
-    'local' : True
-    }
-  game_vars['client'].publish("new_game", json.dumps({'lobby_name':game_vars['lobby_name'],
-                                        'team_name': team,
-                                        'player_name' : name}))
-  update_teams()
-  return name
-
+def take_turn():
+  player_name = game_vars['currentPlayer']
+  time.sleep(1)
+  show_scoreboard()
+  
+  print()
+  print("-----------------------------------")
+  print(f"{player_name}'s turn!")
+  if player_name in game_vars['players'].keys():
+    current_player = game_vars['players'][player_name]
+    if current_player['type'] == 'bot':
+      bot_move(player_name)
+    else:
+      user_move(player_name)
+    set_current_player(find_next_player())
+  else:
+    print(f"Waiting for {player_name} to take their turn!")
+    while(game_vars['currentPlayer'] == player_name):
+      enter_chat_room()
+    # wait for other user to take their turn
+  # print(f"{player_name}'s turn is over!")
 
 # Allow a user to make a move
 def user_move(name):
@@ -301,14 +368,14 @@ def user_move(name):
       time.sleep(1)
     elif move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
       print(f"Uh-oh! {move} is an invalid move. Please enter a valid one!")
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move)
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move, qos=2)
   players[name]['map_updated'] = False
 
 
 # Allow a bot to make a move
 def bot_move(name):
   move = 'DOWN'
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move)
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move, qos=2)
   game_vars['players'][name]['map_updated'] = False
   
   
@@ -317,45 +384,6 @@ def show_scoreboard():
   for team, score in game_vars['scores'].items():
     score_str += f"\nTeam {team} : ${score}"
   print(score_str)
-
-
-game_vars = {
-  'players' : {}, 
-  'currentPlayer' : None, 
-  'lobby_name' : 'TestLobby', 
-  'client' : None, 
-  'scores' : {},
-  'state' : 'setup',
-  'player_order' : [],
-  'teams' : {},
-  'client_id' : None,
-  'client_states' : {}
-  }
-
-
-def take_turn():
-  player_name = game_vars['currentPlayer']
-  time.sleep(1)
-  show_scoreboard()
-  print(player_name)
-  
-  print()
-  print("-----------------------------------")
-  print(f"{player_name}'s turn!")
-  if player_name in game_vars['players'].keys():
-    current_player = game_vars['players'][player_name]
-    print(current_player)
-    if current_player['type'] == 'bot':
-      bot_move(player_name)
-    else:
-      user_move(player_name)
-    set_current_player(find_next_player())
-  else:
-    print(f"Waiting for {player_name} to take their turn!")
-    while(game_vars['currentPlayer'] == player_name):
-      pass
-    # wait for other user to take their turn
-  print(f"{player_name}'s turn is over!")
   
 
 def find_next_player() -> str:
@@ -366,25 +394,58 @@ def find_next_player() -> str:
     
 
 def update_client_state(client_id, state):
+  state_change = game_vars['client_states'][client_id] != state if client_id in game_vars['client_states'].keys() else True
   game_vars['client_states'][client_id] = state
-  if client_id == game_vars['client_id']:
-    game_vars['client'].publish(f"games/{game_vars['lobby_name']}/client_states", json.dumps({client_id : state}))
+  if state_change:
+    for client, state in game_vars['client_states'].items():
+      game_vars['client'].publish(f"games/{game_vars['lobby_name']}/client_states", json.dumps({client : state}), qos=2)
+
 
 def all_synced(state) -> bool:
   synced = all([client_state == state for client_state in game_vars['client_states'].values()])
   return synced
 
+def end_game():
+  update_client_state(game_vars['client_id'], 'game_over')
+  print(f"\n------------------\n     GAME OVER")
+  result = {k : v for k, v in sorted(game_vars['scores'].items(), key= lambda x: x[1])}
+  rank = 1
+  for team, score in result.items():
+    print(f"{rank}. {team} : {score}")
+      
+
+
+def enter_chat_room():
+  choice = None
+  while choice != '?':
+    print(f"Select one of the following: \nEnter C:[Team Name] to enter a chat room for that team\nEnter [Team Name]:[Message] to send a chat to the designated team.")
+    choice = input()
+    if choice.startswith("C:"):
+      team = choice[2:]
+      if team in game_vars['teams'].keys():
+        game_vars['active_room'] = team
+        print(f"Chat room open for Team {team}")
+        display_chat(game_vars['active_room'])
+      else:
+        print(f"{team} is not a valid team!")
+    elif choice != '?':
+      team = choice[:choice.find(":")]
+      message = choice[choice.find(":")+1:]
+      send_anonymous_chat(team, message)
+  if(game_vars['active_room'] != None):
+    game_vars['active_room'] = None
+    print("Chat rooms closed")
+    
+  
 if __name__ == '__main__':
   init_client()
   game_vars['client'].loop_start()
   title_screen()
   run_lobby()    
-  while not all_synced('ready'):
-    pass
   start_game()
-  game_over = False
-  while not game_over:
+  while not game_vars['game_over']:
     take_turn()
+  end_game()
   game_vars['client'].loop_end()
     
             
