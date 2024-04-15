@@ -511,7 +511,7 @@ def bot_move(name):
 
       if((top in block and bottom in block) or (top in block and right in block and left in block) or (bottom in block and right in block and left in block)):
         players[name]["scale_up"] = not players[name]["scale_up"]
-      if((top in block and bottom in block and left in block) or (top in block and bottom in block and right in block) or (top in block and right in block and players[name]["scale_right"] == True) or (bottom in block and left in block and players[name]["scale_right"] == True)):
+      if((top in block and bottom in block and left in block) or (top in block and bottom in block and right in block) or (top in block and right in block and players[name]["scale_right"] == True) or (bottom in block and left in block and players[name]["scale_right"] == False)):
         players[name]["scale_right"] = not players[name]["scale_right"]
       
       if( '$' in top):
