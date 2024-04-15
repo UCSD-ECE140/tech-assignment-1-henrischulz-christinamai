@@ -126,7 +126,7 @@ def update_player_pos(player, game_data):
     'coin1' : '$1',
     'coin2' : '$2',
     'coin3' : '$3',
-    'enemyPositions' : 'Enemy'
+    'enemyPositions' : 'ENMY'
   }
   #print(str(player) + "|" + str(game_data))
   top_left =  [i-2 for i in game_data['currentPosition']]
@@ -151,7 +151,7 @@ def update_player_pos(player, game_data):
       continue
     elif entity == 'teammatePositions':
       for i in range(0, len(locs)):
-        update_map(locs[i], game_data['teammateNames'][i])
+        update_map(locs[i], game_data['teammateNames'][i][0:3])
     elif entity == 'currentPosition':
       update_map(locs, player)
     else:  
