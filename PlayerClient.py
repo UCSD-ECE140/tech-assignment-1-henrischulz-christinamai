@@ -617,8 +617,8 @@ def wait_for_turn():
         print(f"Chat room open for Team {team}")
         print("Enter 'C:[Message] to send a chat!")
         display_chat(game_vars['active_room'])
-      elif game_vars['active_room'] != None and choice.startswith("C:"):
-        send_anonymous_chat(game_vars['active_room'], choice[2:])    
+    elif game_vars['active_room'] != None and choice.startswith("C:"):
+      send_anonymous_chat(game_vars['active_room'], choice[2:])    
 
           
 # Main game loop  
