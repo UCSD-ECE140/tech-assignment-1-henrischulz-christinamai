@@ -1,0 +1,7 @@
+
+gamemod == 'title'
+if (gamemode == 'title')
+    wait until enter has been pressed
+    gamemode = 'lobby'
+
+if (gamemode == 'lobby')
