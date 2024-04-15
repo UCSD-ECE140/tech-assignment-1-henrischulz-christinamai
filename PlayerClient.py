@@ -7,7 +7,7 @@ import paho.mqtt.client as paho
 from paho import mqtt
 import time
 
-
+# Dictionary unique to each client used to track game variables
 game_vars = {
   'players' : {}, 
   'currentPlayer' : None, 
@@ -71,54 +71,57 @@ def on_message(client, userdata, msg):
         :param userdata: userdata is set when initiating the client, here it is userdata=None
         :param msg: the message with topic and payload
     """
-    # print(msg.topic + " : " + msg.payload.decode())
+    
     players = game_vars['players']
-    if msg.topic.endswith('game_state'):
+    
+    if msg.topic.endswith('game_state'): # update player info
       (_, lobby, player, _) = msg.topic.split('/')
       if player in players.keys():
         players[player]['game_data'] = json.loads(msg.payload)
         if players[player]['type'] == 'user':
-          update_position(player, json.loads(msg.payload))
-    elif msg.topic.endswith('scores'):
+          update_player_pos(player, json.loads(msg.payload))
+    
+    elif msg.topic.endswith('scores'): # updated local scores
       game_vars['scores'] = json.loads(msg.payload)
-    elif msg.topic.endswith('chat'):
+    
+    elif msg.topic.endswith('chat'): # updates chat
       (_, _, team, _) = msg.topic.split('/')
+      print("new chat received")
       update_chat(team, json.loads(msg.payload))
       display_chat(team)
-    elif msg.topic.endswith('players'):
+      
+    elif msg.topic.endswith('players'): # updates dict of players 
       game_vars['players'] = json.loads(msg.payload)
-    elif msg.topic.endswith('current_player'):
+      
+    elif msg.topic.endswith('current_player'): # updates the currently set player
       player = msg.payload.decode()
       if player != game_vars['currentPlayer']:
         print(f"It is now {player}'s turn!\nIf you are {player}, enter '?' to take your turn!")
         game_vars['currentPlayer'] = player
-    elif msg.topic.endswith('teams'):
+        
+    elif msg.topic.endswith('teams'): # updates the local dict of teams
       game_vars['teams'] = json.loads(msg.payload)
-      display_lobby()
-    elif msg.topic.endswith('client_states'):
+      display_teams()
+      
+    elif msg.topic.endswith('client_states'): # updates local dictonary of client states
       updates = json.loads(msg.payload)
       for client_id, state in updates.items(): 
         update_client_state(client_id, state)
-    elif msg.payload.decode().startswith('Game Over'):
+        
+    elif msg.payload.decode().startswith('Game Over'): # updates whether game is over
       game_vars['game_over'] = True
 
-def display_lobby():
+def display_teams():
+  """
+  Displays the teams and their respective players
+  """
   print(f"\n----TEAMS----")
   for team, names in game_vars['teams'].items():
     print(f"Team {team}: {", ".join(names)}")
   print()
     
-def set_players():
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/players", game_vars['players'], qos=2)
-  
-def sync_players(players : dict):
-  pass
-  # for player, info in players.items():
-  #   if game_vars['players'] in keys():
-  
-def update_position(player, game_data):
-  players = game_vars['players']
-  marker = {
+def update_player_pos(player, game_data):
+  marker = { # used to map items in game data to visual represenations
     'free'  : '__',
     'walls' : '[]',
     'oob' : 'XX',
@@ -130,7 +133,7 @@ def update_position(player, game_data):
   
   top_left =  [i-2 for i in game_data['currentPosition']]
   
-  game_map = [[None for i in range(0,5)] for i in range(0,5)]
+  game_map = [[None for i in range(0,5)] for i in range(0,5)] # Builds a 5x5 2-D list representing game map
   for i in range(0,5):
     for j in range(0,5):
       if top_left[0] + i in range(0,10) and top_left[1] + j in range(0,10):
@@ -139,9 +142,13 @@ def update_position(player, game_data):
         game_map[i][j] = marker['oob']
   
   def update_map(loc : list[2], entity : str):
+    """
+    Updates coordinate loc to match its corresponding graphic in marker
+    If no graphic is found, sets the graphic to be the capitalized entity
+    """
     game_map[loc[0] - top_left[0]][loc[1] - top_left[1]] = marker[entity] if entity in marker.keys() else entity.capitalize()
 
-  for entity, locs in dict.items(game_data):
+  for entity, locs in dict.items(game_data): # handles drawing teammates and the active player's current position on the map
     if entity == 'teammateNames':
       continue
     elif entity == 'teammatePositions':
@@ -152,17 +159,25 @@ def update_position(player, game_data):
     else:  
       for loc in locs:
         update_map(loc, entity)
+        
   game_vars['players'][player]['map'] = game_map 
   game_vars['players'][player]['map_updated'] = True
 
 
 def show_map(player):
+  """
+  Prints out the map for a given player
+  """
   print(f"\n{player}'s map:")
   for row in game_vars['players'][player]['map']:
       print('\t'.join(row))
       
       
 def init_client():
+  """
+  Initiliazes MQTT client and updates game_vars['client'] to contain the MQTT client
+  """
+  
   load_dotenv(dotenv_path='./credentials.env')
 
   broker_address = os.environ.get('BROKER_ADDRESS')
@@ -170,6 +185,7 @@ def init_client():
   username = os.environ.get('USER_NAME')
   password = os.environ.get('PASSWORD')
   
+  # Generates random id for each client
   random.seed(time.time_ns())
   client_id = str(random.randint(0, 100000))
   game_vars['client_id'] = client_id
@@ -184,10 +200,12 @@ def init_client():
   client.connect(broker_address, broker_port)
 
   # setting callbacks, use separate functions like above for better visibility
-  client.on_subscribe = on_subscribe # Can comment out to not print when subscribing to new topics
+  client.on_subscribe = on_subscribe
   client.on_message = on_message
-  client.on_publish = on_publish # Can comment out to not print when publishing to topics
+  client.on_publish = on_publish
+  client.enable_logger()
 
+  # Subscribes to all default topics regarding game info
   lobby_name = game_vars['lobby_name']
   client.subscribe(f"games/{lobby_name}/lobby")
   client.subscribe(f'games/{lobby_name}/+/game_state')
@@ -196,47 +214,79 @@ def init_client():
   client.subscribe(f'games/{lobby_name}/teams')
   client.subscribe(f'games/{lobby_name}/client_states')
   
-  game_vars['client'] = client
+  game_vars['client'] = client # Makes client accessible via game_vars['client']
+  
+  time.sleep(2)
   
 def title_screen():
+  """
+  Displays a title screen then waits until user presses enter to continue
+  """
+  
   update_client_state(game_vars['client_id'], 'title')
   print(f"\n\n------------------------\nWELCOME TO THE GAME\n\nPress enter to start!\n------------------------")
   input()
   
 # Sets up a game
-def run_lobby():
-  update_client_state(game_vars['client_id'], 'lobby')
+def matchmaking():
+  """
+  Carries out matchmaking for a lobby by allowing users to create new bots and user-controlled agents
+  Waits until all clients in the lobby have readied up to exit matchmaking
+  """
+  
+  print(f"\nYou are client #{game_vars['client_id']}")
+  
   while True:
-    display_lobby()
+    update_client_state(game_vars['client_id'], 'matchmaking')
+
+    display_teams()
+    
     choice = input(f"Please select one of the following\n[U] Create User\n[B] Create Bot \n[S] Start Game\n")
+    
     if choice == "U":
       create_user()
+      
     elif choice == "B":
       team = input(f"\nWhat team should the bot Player{sum([len(team) for team in game_vars['teams'].values()]) + 1} be on?\n")
       create_bot(team)
+      
     elif choice == "S":
       update_client_state(game_vars['client_id'], 'ready')
-      print(f'\nWaiting for all lobbies to ready up!')
-      while not all_synced('ready'):
+      print(f'\nWaiting for all clients to ready up!')
+      
+      while not all_synced('ready'): # Waits for all clients before exiting matchmaking
+        update_client_state(game_vars['client_id'], 'ready')
         time.sleep(1)
         print(game_vars['client_states'])
       return
 
 def update_teams():
+  """
+  Updates the list of current teams and players
+  Notifies all other clients of updated teams and players
+  """
+  
+  # Updates game_vars['team'] with dicts in the form of {team : [player1, player2, ...]}
   for player_name, player_info in game_vars['players'].items():
     team = player_info['team']
-    if team not in game_vars['teams'].keys():
+    
+    if team not in game_vars['teams'].keys(): # creates new team and subscribes to schannel for its chat
       game_vars['teams'][team] = [player_name]
+      
     elif player_name not in game_vars['teams'][team]:
       game_vars['teams'][team].append(player_name)
-  sync_teams()
-
-def sync_teams():
-  for team in game_vars['teams'].keys():
-    game_vars['client'].subscribe(f"games/{game_vars['lobby_name']}/{team}/chat")
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/teams", json.dumps(game_vars['teams']), qos=2)
+    topic = f"games/{game_vars['lobby_name']}/{team}/chat"
+    game_vars['client'].subscribe(topic)
+    
+  # Syncs teams across all player clients
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/teams", json.dumps(game_vars['teams']))
+  
   
 def set_order():
+  """
+  Derives order of players from game_vars['teams'] and stores result in list at game_vars['player_order']
+  Sets the current player to be the first player in that order
+  """
   game_vars['player_order'] = []
   for team in game_vars['teams'].values():
     for player_name in team:
@@ -245,23 +295,40 @@ def set_order():
   set_current_player(game_vars['player_order'][0])
 
 def set_current_player(player):
+  """
+  Sets the current player (the player who's turn it is)
+  Notifies all clients in the lobby
+  """
   game_vars['currentPlayer'] = player
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/current_player", player, qos=2)
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/current_player", player)
 
 def start_game():
-  print(f"\n\nGAME STARTED!")
+  """
+  Sets player order, then starts a game
+  """
   set_order()
   time.sleep(1) # Wait a second to resolve game start
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/start", "START", qos=2) 
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/start", "START")
+  print(f"\n\nGAME STARTED!")
+
   
 def send_chat(player, message):
+  """
+  Sends a specified message to all members on the same team as the gven player
+  """
   player_team = game_vars['players'][player]['team']
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{game_vars['players'][player]['team']}/chat", json.dumps({player_team : f"{player} : {message}"}),qos=2)
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{game_vars['players'][player]['team']}/chat", json.dumps({player_team : f"{player} : {message}"}))
 
 def send_anonymous_chat(team, message):
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{team}/chat", json.dumps({team : f"Anonymous : {message}"}),qos=2)
+  """
+  Send the specified mesage from an anonymous player to all members on the specified team
+  """
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{team}/chat", json.dumps({team : f"Anonymous : {message}"}))
 
 def update_chat(team, message):
+  """
+  Updates the chat list for each player in a specified team to contain the specified message
+  """
   for team, chat in message.items():
     for player_name in game_vars['players'].keys():
       if game_vars['players'][player_name]['team'] == team:
@@ -269,6 +336,10 @@ def update_chat(team, message):
             
       
 def display_chat(team):
+  """
+  Determines whether chat for a specified team should be displayed, then displays if needed
+  """
+  
   currentPlayer = game_vars['currentPlayer']
   players = game_vars['players']
   
@@ -279,6 +350,7 @@ def display_chat(team):
     messages = []
     for player_name in game_vars['teams'][team]:
       if player_name in players.keys():
+        print(players[player_name]['chat'])
         message = ""
         try:
           while True:
@@ -288,14 +360,20 @@ def display_chat(team):
         except IndexError:
           pass
     if messages == []:
-      print(f"\nThere are no players on this computer on that team.\nStop trying to cheat!")
-    else:
+      pass
+    else:  
       for message in messages:
         print(f"\nNEW CHAT from {message}")
 
 
-# Adding new users
+
 def create_user() -> str:
+  """
+  Creates a new user-controlled player in the game
+  Intended to be used during matchmaking only
+  Returns the name of the user
+  """
+  
   name = input("Enter your name: ")
   
   if any([name in names for names in game_vars['teams'].values()]):
@@ -310,12 +388,18 @@ def create_user() -> str:
     }
   game_vars['client'].publish("new_game", json.dumps({'lobby_name':game_vars['lobby_name'],
                                         'team_name': team,
-                                        'player_name' : name}), qos=2)
+                                        'player_name' : name}))
+  print("player published")
   update_teams()
   return name
 
-# Adding new bots
+
 def create_bot(team) -> str:
+  """
+  Creates a new bot to be added as a player to the game
+  Intended to be used during matchmaking only
+  Returns the name of the new bot
+  """
   name = f"Player{sum([len(team) for team in game_vars['teams'].values()]) + 1}"
   game_vars['players'][name] = {
     'type' : 'bot',
@@ -325,12 +409,15 @@ def create_bot(team) -> str:
   }
   game_vars['client'].publish("new_game", json.dumps({'lobby_name':game_vars['lobby_name'],
                                         'team_name': team,
-                                        'player_name' : name}), qos=2)
+                                        'player_name' : name}))
   update_teams()
   return name
 
 
-def take_turn():
+def run_game():
+  """
+  Runs the main game loop, allowing players and bots to take their turns
+  """
   player_name = game_vars['currentPlayer']
   time.sleep(1)
   show_scoreboard()
@@ -338,48 +425,68 @@ def take_turn():
   print()
   print("-----------------------------------")
   print(f"{player_name}'s turn!")
-  if player_name in game_vars['players'].keys():
+  
+  if player_name in game_vars['players'].keys(): # if player was set up on this client...
     current_player = game_vars['players'][player_name]
     if current_player['type'] == 'bot':
-      bot_move(player_name)
+      bot_move(player_name) # make automatic move if player is a bot
     else:
-      user_move(player_name)
-    set_current_player(find_next_player())
-  else:
+      user_move(player_name) # prompt user for their own move if player is user-controlled
+    set_current_player(find_next_player()) # move on to the next player
+  
+  else: # if player resides on another client, wait until they have taken their turn
     print(f"Waiting for {player_name} to take their turn!")
     while(game_vars['currentPlayer'] == player_name):
-      enter_chat_room()
-    # wait for other user to take their turn
-  # print(f"{player_name}'s turn is over!")
+      wait_for_turn()
 
 # Allow a user to make a move
 def user_move(name):
+  """
+  Prompts a user to make their move or send a chat when it is their turn
+  Only returns once a user has successfully made their move
+  """
+  
   move = None
   players = game_vars['players']
-  while not players[name]['map_updated']:
+  
+  # Waits until a player's map is updated to show their new map
+  while not players[name]['map_updated']: 
     pass
   show_map(name)
+  players[name]['map_updated'] = False
+
+  
+  # Displays user options
   print(f"\n{name}, what move do you want to make? (UP/DOWN/LEFT/RIGHT)\nOr, enter 'C:' followed by a message to send a message to your team")
+  
   while move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
     display_chat(players[name]['team'])
     move = input()
-    if move.startswith('C:'):
+    if move.startswith('C:'): # Send a chat if input is in format C:[message]
       send_chat(name, move[2:])
       time.sleep(1)
-    elif move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
+    elif move not in ['UP', 'DOWN', 'LEFT', 'RIGHT']: # Let user know they input a wrong move
       print(f"Uh-oh! {move} is an invalid move. Please enter a valid one!")
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move, qos=2)
-  players[name]['map_updated'] = False
+  
+  # After player has selected a valid move, send it to the GameClient  
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move)
 
 
-# Allow a bot to make a move
 def bot_move(name):
+  """
+  Implements algorithm for calculating the next move of an automated player, then makes that move
+  """
+  
   move = 'DOWN'
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move, qos=2)
+  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move)
   game_vars['players'][name]['map_updated'] = False
   
   
 def show_scoreboard():
+  """
+  Displays current score of teams in the game
+  """
+  
   score_str = f"\nSCOREBOARD:"
   for team, score in game_vars['scores'].items():
     score_str += f"\nTeam {team} : ${score}"
@@ -387,6 +494,10 @@ def show_scoreboard():
   
 
 def find_next_player() -> str:
+  """
+  Returns the name of the player that is up next
+  """
+  
   for i in range(0, len(game_vars['player_order'])):
     if game_vars['player_order'][i] == game_vars['currentPlayer']:
       next_player = game_vars['player_order'][(i + 1) % len(game_vars['player_order'])]
@@ -394,60 +505,85 @@ def find_next_player() -> str:
     
 
 def update_client_state(client_id, state):
+  """
+  Updates the current state of the client, and lets other clients know the current state of the client as well
+  """
+  
   state_change = game_vars['client_states'][client_id] != state if client_id in game_vars['client_states'].keys() else True
   game_vars['client_states'][client_id] = state
   if state_change:
     for client, state in game_vars['client_states'].items():
-      game_vars['client'].publish(f"games/{game_vars['lobby_name']}/client_states", json.dumps({client : state}), qos=2)
+      game_vars['client'].publish(f"games/{game_vars['lobby_name']}/client_states", json.dumps({client : state}))
 
 
 def all_synced(state) -> bool:
+  """
+  Returns whether all clients's state is equal to the given state
+  """
+  
   synced = all([client_state == state for client_state in game_vars['client_states'].values()])
   return synced
 
 def end_game():
+  """
+  Notifies players that game is over and shows winner and final score results
+  """
+  
   update_client_state(game_vars['client_id'], 'game_over')
   print(f"\n------------------\n     GAME OVER")
-  result = {k : v for k, v in sorted(game_vars['scores'].items(), key= lambda x: x[1])}
+  
+  # Calculates final results
+  result = {k : v for k, v in sorted(game_vars['scores'].items(), key= lambda x: x[1])} 
+  
+  # Displays final results
   rank = 1
+  first_marked = False
   for team, score in result.items():
-    print(f"{rank}. {team} : {score}")
-      
+    if not first_marked:
+      print(f"Team {team} won with ${score}!\n\nResults:")
+    print(f"{rank}. {team} : ${score}")
 
 
-def enter_chat_room():
+def wait_for_turn():
+  """
+  Allows users to open chat rooms and send chats when it is not their turn
+  To take their turn, users must enter '?'
+  """
+  
   choice = None
   while choice != '?':
-    print(f"Select one of the following: \nEnter C:[Team Name] to enter a chat room for that team\nEnter [Team Name]:[Message] to send a chat to the designated team.")
+    # Displays user options
+    print(f"\nSelect one of the following: \n  Enter 'OC:[Team Name]' to enter a chat room for that team\n  Enter '[Team Name]:[Message]' to send a chat to the designated team.")
     choice = input()
-    if choice.startswith("C:"):
+    
+    
+    if choice.startswith("OC:"): # Opens a chat room if authorized
       team = choice[2:]
-      if team in game_vars['teams'].keys():
+      if team in game_vars['teams'].keys() and any(player['team'] == team for player in game_vars['players'].values()):
         game_vars['active_room'] = team
         print(f"Chat room open for Team {team}")
         display_chat(game_vars['active_room'])
       else:
-        print(f"{team} is not a valid team!")
-    elif choice != '?':
+        print(f"Access to team {team} is not authorized!")
+    
+    elif choice != '?' and game_vars['active_room'] != None: # Sends a message in an open chat room
       team = choice[:choice.find(":")]
       message = choice[choice.find(":")+1:]
       send_anonymous_chat(team, message)
-  if(game_vars['active_room'] != None):
+      
+  if(game_vars['active_room'] != None): # Closes any open chat rooms
     game_vars['active_room'] = None
     print("Chat rooms closed")
     
-  
+
+# Main game loop  
 if __name__ == '__main__':
   init_client()
   game_vars['client'].loop_start()
   title_screen()
-  run_lobby()    
+  matchmaking()    
   start_game()
   while not game_vars['game_over']:
-    take_turn()
+    run_game()
   end_game()
-  game_vars['client'].loop_end()
-    
-            
-
-
+  game_vars['client'].loop_stop()
