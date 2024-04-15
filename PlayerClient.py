@@ -78,15 +78,13 @@ def on_message(client, userdata, msg):
       (_, lobby, player, _) = msg.topic.split('/')
       if player in players.keys():
         players[player]['game_data'] = json.loads(msg.payload)
-        if players[player]['type'] == 'user':
-          update_player_pos(player, json.loads(msg.payload))
+        update_player_pos(player, json.loads(msg.payload))
     
     elif msg.topic.endswith('scores'): # updated local scores
       game_vars['scores'] = json.loads(msg.payload)
     
     elif msg.topic.endswith('chat'): # updates chat
       (_, _, team, _) = msg.topic.split('/')
-      print("new chat received")
       update_chat(team, json.loads(msg.payload))
       display_chat(team)
       
@@ -247,7 +245,8 @@ def matchmaking():
       
     elif choice == "B":
       team = input(f"\nWhat team should the bot Player{sum([len(team) for team in game_vars['teams'].values()]) + 1} be on?\n")
-      create_bot(team)
+      mode = input(f"\nWhat mode should this bot be? n/a or algorithm :")
+      create_bot(team, mode)
       
     elif choice == "S":
       update_client_state(game_vars['client_id'], 'ready')
@@ -255,7 +254,7 @@ def matchmaking():
       
       while not all_synced('ready'): # Waits for all clients before exiting matchmaking
         update_client_state(game_vars['client_id'], 'ready')
-        time.sleep(1)
+        time.sleep(5)
         print(game_vars['client_states'])
       return
 
@@ -349,7 +348,6 @@ def display_chat(team):
     messages = []
     for player_name in game_vars['teams'][team]:
       if player_name in players.keys():
-        print(players[player_name]['chat'])
         message = ""
         try:
           while True:
@@ -393,23 +391,31 @@ def create_user() -> str:
   return name
 
 
-def create_bot(team) -> str:
+def create_bot(team, mode) -> str:
   """
   Creates a new bot to be added as a player to the game
   Intended to be used during matchmaking only
   Returns the name of the new bot
   """
-  name = f"Player{sum([len(team) for team in game_vars['teams'].values()]) + 1}"
-  game_vars['players'][name] = {
+  players = game_vars['players']
+  client = game_vars['client']
+  lobby_name = game_vars['lobby_name']
+  
+  name = f"Player{len(players) + 1}"
+  players[name] = {
     'type' : 'bot',
     'map_updated' : False,
     'team' : team,
-    'chat' : list()
+    'mode' : mode, #n/a or algorithm
+    'scale_up': True,
+    'scale_right': True,
+    'default_move': 'UP'
   }
-  game_vars['client'].publish("new_game", json.dumps({'lobby_name':game_vars['lobby_name'],
+  client.publish("new_game", json.dumps({'lobby_name':lobby_name,
                                         'team_name': team,
                                         'player_name' : name}))
   update_teams()
+  
   return name
 
 
@@ -474,12 +480,13 @@ def user_move(name):
 # Allow a bot to make a move
 def bot_move(name): 
   #print("bot: " + name)
+  client = game_vars['client']
+  players = game_vars['players']
+  lobby_name = game_vars['lobby_name']
+  
   match players[name]["mode"]:
     case 'algorithm':
       move = 'DOWN'
-      
-      while not players[name]['map_updated']:
-        pass
       
       block = ["XX","Enemypositions","Player"]
         
@@ -520,14 +527,6 @@ def bot_move(name):
       move = 'DOWN'
       client.publish(f"games/{lobby_name}/{name}/move", move)
       players[name]['map_updated'] = False
-def bot_move(name):
-  """
-  Implements algorithm for calculating the next move of an automated player, then makes that move
-  """
-  
-  move = 'DOWN'
-  game_vars['client'].publish(f"games/{game_vars['lobby_name']}/{name}/move", move)
-  game_vars['players'][name]['map_updated'] = False
   
   
 def show_scoreboard():
@@ -604,55 +603,17 @@ def wait_for_turn():
     print(f"\nSelect one of the following: \n  Enter 'OC:[Team Name]' to enter a chat room for that team\n  Enter '[Team Name]:[Message]' to send a chat to the designated team.")
     choice = input()
     
-    
     if choice.startswith("OC:"): # Opens a chat room if authorized
-      team = choice[2:]
+      team = choice[3:]
       if team in game_vars['teams'].keys() and any(player['team'] == team for player in game_vars['players'].values()):
         game_vars['active_room'] = team
         print(f"Chat room open for Team {team}")
+        print("Enter 'C:[Message] to send a chat!")
         display_chat(game_vars['active_room'])
-# Check if all coins are collected for end game condition
-def check_end_game(lobby_subscription_message):
-  if(lobby_subscription_message == 'Game Over: All coins have been collected'):
-    game_over = True
-    print("game_over");
-    return game_over
-    
-# End Lobby Game for Players
-def end_game():
-  client.loop_stop()
+      elif game_vars['active_room'] != None and choice.startswith("C:"):
+        send_anonymous_chat(game_vars['active_room'], choice[2:])    
+
           
-players = {}
-lobby_name = 'TestLobby'
-client: paho.Client = None
-
-if __name__ == '__main__':
-  client = init_client(client)   
-  setup_game()
-  start_game()
-    
-  game_over = False
-  
-  client.loop_start()
-
-  while not game_over:
-    for player, info in dict.items(players):
-      print(f"\n{player}'s turn!")
-      if info['type'] == 'bot':
-        bot_move(player)
-      else:
-        print(f"Access to team {team} is not authorized!")
-    
-    elif choice != '?' and game_vars['active_room'] != None: # Sends a message in an open chat room
-      team = choice[:choice.find(":")]
-      message = choice[choice.find(":")+1:]
-      send_anonymous_chat(team, message)
-      
-  if(game_vars['active_room'] != None): # Closes any open chat rooms
-    game_vars['active_room'] = None
-    print("Chat rooms closed")
-    
-
 # Main game loop  
 if __name__ == '__main__':
   init_client()
@@ -664,9 +625,6 @@ if __name__ == '__main__':
     run_game()
   end_game()
   game_vars['client'].loop_stop()
-        user_move(player)
-      print(f"{player}'s turn is over")
-
   
   
       
