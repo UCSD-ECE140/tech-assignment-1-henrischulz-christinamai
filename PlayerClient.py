@@ -151,7 +151,7 @@ def update_player_pos(player, game_data):
       continue
     elif entity == 'teammatePositions':
       for i in range(0, len(locs)):
-        update_map(locs[i], game_data['teammateNames'][i][0:3])
+        update_map(locs[i], game_data['teammateNames'][i])
     elif entity == 'currentPosition':
       update_map(locs, player)
     else:  
