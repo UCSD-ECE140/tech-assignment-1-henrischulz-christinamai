@@ -409,7 +409,7 @@ def create_bot(team, mode) -> str:
     'mode' : mode, #n/a or algorithm
     'scale_up': True,
     'scale_right': True,
-    'default_move': 'UP'
+    'face': 0
   }
   client.publish("new_game", json.dumps({'lobby_name':lobby_name,
                                         'team_name': team,
@@ -491,7 +491,7 @@ def bot_move(name):
     case 'algorithm':
       move = 'DOWN'
       
-      block = ["XX", "[]", "Enemypositions","Player"]
+      block = ["XX", "[]", "Enemypositions"]
       for team in game_vars['teams'].values():
         for player_name in team:
           block.append(player_name)
@@ -502,10 +502,16 @@ def bot_move(name):
       right = players[name]["map"][2][3]
       left = players[name]["map"][2][1]
       
+      # nearby = [top,bottom,right,left]
+      # direction = ["UP","DOWN","RIGHT","LEFT"]; 
+      # if(nearby[players[name]["face"]] not in block): #no block in front
+      #   move = players[name]["face"]
+      # elif (right in block and top not in block):
+      #   players[name]["face"] = "UP"
 
-      if((top in block and bottom in block) or (top in block and right in block and left in block) or (bottom in block and right in block and left in block) or (top in block and left in block)):
+      if((top in block and bottom in block) or (top in block and right in block and left in block) or (bottom in block and right in block and left in block)):
         players[name]["scale_up"] = not players[name]["scale_up"]
-      if((top in block and bottom in block and left in block) or (top in block and bottom in block and right in block)):
+      if((top in block and bottom in block and left in block) or (top in block and bottom in block and right in block) or (top in block and right in block and players[name]["scale_right"] == True) or (bottom in block and left in block and players[name]["scale_right"] == False)):
         players[name]["scale_right"] = not players[name]["scale_right"]
       
       if( '$' in top):
@@ -516,18 +522,18 @@ def bot_move(name):
         move = 'RIGHT'
       elif('$' in bottom):
         move = "DOWN"
-      elif(top not in block and players[name]["scale_up"]):
+      elif((top not in block and "Player" not in top) and players[name]["scale_up"]):
         move = "UP"
-      elif(bottom not in block and not players[name]["scale_up"]):
+      elif((bottom not in block and "Player" not in bottom) and not players[name]["scale_up"]):
         move = "DOWN"
-      elif(right not in block and players[name]["scale_right"]):
+      elif((right not in block and "Player" not in right) and players[name]["scale_right"]):
         move = "RIGHT"
       elif(left not in block):
         move = "LEFT"
       
       show_map(name)
       print(name + " | " + move + " | " + str(players[name]["scale_up"]) + " | " + str(players[name]["scale_right"]))
-      input()
+      #input()
       client.publish(f"games/{lobby_name}/{name}/move", move)
       players[name]['map_updated'] = False
     case _:
