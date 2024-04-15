@@ -484,11 +484,18 @@ def bot_move(name):
   players = game_vars['players']
   lobby_name = game_vars['lobby_name']
   
+  while not players[name]['map_updated']:
+    pass
+  
   match players[name]["mode"]:
     case 'algorithm':
       move = 'DOWN'
       
-      block = ["XX","Enemypositions","Player"]
+      block = ["XX", "[]", "Enemypositions","Player"]
+      for team in game_vars['teams'].values():
+        for player_name in team:
+          block.append(player_name)
+      print(block)
         
       top = players[name]["map"][1][2]
       bottom = players[name]["map"][3][2]
